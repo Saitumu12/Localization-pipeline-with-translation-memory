@@ -172,6 +172,9 @@ func cmdImport(args []string) error {
 		}
 		fmt.Printf("%s: file %d, %d segments (%d translated, %d untranslated, %d skipped)\n",
 			res.File.Name, res.File.ID, res.Segments, res.Translated, res.Untranslated, res.Skipped)
+		if res.KeptReview > 0 {
+			fmt.Printf("  %d entries came back unchanged and kept their review state\n", res.KeptReview)
+		}
 	}
 	return nil
 }

@@ -53,12 +53,27 @@ type NewSegment struct {
 	Notes      string
 }
 
+// prior is the review state a segment had before a re-import.
+type prior struct {
+	source, target string
+	status, origin string
+	reviewedBy     *string
+	reviewedAt     *time.Time
+}
+
 // InsertFile stores an uploaded file and all of its segments in one transaction,
-// so a half-imported file can never be left behind.
-func (s *Store) InsertFile(ctx context.Context, f File, original []byte, segs []NewSegment) (File, error) {
+// so a half-imported file can never be left behind. It returns how many segments
+// kept the review state they already had.
+//
+// Re-importing is the normal case, not an edge case: a project runs lupdate or
+// its equivalent whenever the source strings change, and uploads the new file.
+// An entry whose source and translation both came back unchanged is the same
+// work, so its status, origin and reviewer carry over. If either text changed it
+// is new work and starts from what the file says, with no reviewer.
+func (s *Store) InsertFile(ctx context.Context, f File, original []byte, segs []NewSegment) (File, int, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return f, err
+		return f, 0, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
@@ -72,32 +87,76 @@ func (s *Store) InsertFile(ctx context.Context, f File, original []byte, segs []
 		f.ProjectID, f.Name, f.Format, original, f.SHA256,
 	).Scan(&f.ID, &f.ImportedAt)
 	if err != nil {
-		return f, fmt.Errorf("store: insert file: %w", err)
+		return f, 0, fmt.Errorf("store: insert file: %w", err)
 	}
 
-	// A re-import replaces the segment set; translations are rebuilt from the
-	// file's own targets, which is what the uploaded bytes say is true.
+	existing, err := priorState(ctx, tx, f.ID)
+	if err != nil {
+		return f, 0, err
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM segments WHERE file_id = $1`, f.ID); err != nil {
-		return f, err
+		return f, 0, err
 	}
 
+	kept := 0
 	rows := make([][]any, 0, len(segs))
 	for _, sg := range segs {
+		status, origin := sg.Status, "import"
+		var reviewedBy *string
+		var reviewedAt *time.Time
+
+		if p, ok := existing[segmentKey{sg.UnitKey, sg.FormIndex}]; ok &&
+			p.source == sg.SourceText && p.target == sg.TargetText {
+			status, origin = p.status, p.origin
+			reviewedBy, reviewedAt = p.reviewedBy, p.reviewedAt
+			kept++
+		}
+
 		rows = append(rows, []any{
 			f.ID, sg.UnitKey, sg.FormIndex, sg.Context, sg.SourceText,
-			sg.TargetText, sg.Status, "import", sg.IsPlural, sg.MaxWidth, sg.Notes,
+			sg.TargetText, status, origin, sg.IsPlural, sg.MaxWidth, sg.Notes,
+			reviewedBy, reviewedAt,
 		})
 	}
 	_, err = tx.CopyFrom(ctx,
 		pgx.Identifier{"segments"},
 		[]string{"file_id", "unit_key", "form_index", "context", "source_text",
-			"target_text", "status", "origin", "is_plural", "max_width", "notes"},
+			"target_text", "status", "origin", "is_plural", "max_width", "notes",
+			"reviewed_by", "reviewed_at"},
 		pgx.CopyFromRows(rows))
 	if err != nil {
-		return f, fmt.Errorf("store: insert segments: %w", err)
+		return f, 0, fmt.Errorf("store: insert segments: %w", err)
 	}
 
-	return f, tx.Commit(ctx)
+	return f, kept, tx.Commit(ctx)
+}
+
+type segmentKey struct {
+	unitKey   string
+	formIndex int
+}
+
+func priorState(ctx context.Context, tx pgx.Tx, fileID int64) (map[segmentKey]prior, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT unit_key, form_index, source_text, target_text,
+		       status::text, origin::text, reviewed_by, reviewed_at
+		FROM segments WHERE file_id = $1`, fileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[segmentKey]prior{}
+	for rows.Next() {
+		var k segmentKey
+		var p prior
+		if err := rows.Scan(&k.unitKey, &k.formIndex, &p.source, &p.target,
+			&p.status, &p.origin, &p.reviewedBy, &p.reviewedAt); err != nil {
+			return nil, err
+		}
+		out[k] = p
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) ListFiles(ctx context.Context, projectID int64) ([]File, error) {

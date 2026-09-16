@@ -81,6 +81,48 @@ var attrUnescaper = strings.NewReplacer("&quot;", `"`, "&apos;", "'", "&lt;", "<
 
 func unescapeAttr(s string) string { return attrUnescaper.Replace(s) }
 
+// entityStart matches an ampersand that already begins a character reference,
+// either numeric or a named entity we know how to decode.
+var entityStart = regexp.MustCompile(`^&(#[0-9]+|#x[0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);`)
+
+// NormalizeFragment escapes a bare "&" that is not already part of a character
+// reference, and leaves everything else alone.
+//
+// Qt menu labels are full of accelerators such as "&Datei", and a translator
+// typing one means a literal ampersand, not a broken entity. Refusing it would
+// make the tool unusable for the most ordinary string in a Qt application. A
+// bare "<" is still refused, because it is either markup or a mistake and
+// guessing which would risk changing what the file says.
+func NormalizeFragment(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '&' {
+			b.WriteByte(s[i])
+			continue
+		}
+		if m := entityStart.FindString(s[i:]); m != "" && knownEntity(m) {
+			b.WriteString(m)
+			i += len(m) - 1
+			continue
+		}
+		b.WriteString("&amp;")
+	}
+	return b.String()
+}
+
+func knownEntity(ref string) bool {
+	name := ref[1 : len(ref)-1]
+	if strings.HasPrefix(name, "#") {
+		return true
+	}
+	switch name {
+	case "amp", "lt", "gt", "quot", "apos":
+		return true
+	}
+	_, ok := xml.HTMLEntity[name]
+	return ok
+}
+
 // ValidateFragment rejects a translation that would not parse back as XML.
 // Translations carry inline tags such as <x id="INTERPOLATION"/>, so we accept
 // markup but insist it is balanced and correctly escaped.

@@ -31,7 +31,10 @@ func (p *Pipeline) Save(ctx context.Context, segmentID int64, req SaveRequest) (
 	if err != nil {
 		return store.Segment{}, err
 	}
-	if err := format.ValidateFragment(req.Target); err != nil {
+	// A bare "&" from a Qt accelerator is escaped rather than refused; see
+	// format.NormalizeFragment.
+	target := format.NormalizeFragment(req.Target)
+	if err := format.ValidateFragment(target); err != nil {
 		return store.Segment{}, err
 	}
 	f, _, err := p.Store.GetFile(ctx, seg.FileID)
@@ -49,7 +52,7 @@ func (p *Pipeline) Save(ctx context.Context, segmentID int64, req SaveRequest) (
 
 	issues := checks.Run(checks.Segment{
 		Source:   seg.SourceText,
-		Target:   req.Target,
+		Target:   target,
 		MaxWidth: seg.MaxWidth,
 		Dialect:  placeholder.DialectFor(f.Format),
 	}, cfg)
@@ -57,7 +60,7 @@ func (p *Pipeline) Save(ctx context.Context, segmentID int64, req SaveRequest) (
 	if err != nil {
 		return store.Segment{}, err
 	}
-	issues = append(issues, checks.Consistency(req.Target, others)...)
+	issues = append(issues, checks.Consistency(target, others)...)
 
 	origin := req.Origin
 	if origin != "memory" {
@@ -70,19 +73,19 @@ func (p *Pipeline) Save(ctx context.Context, segmentID int64, req SaveRequest) (
 		if strings.TrimSpace(req.Reviewer) == "" {
 			return store.Segment{}, fmt.Errorf("approving a translation requires a reviewer name")
 		}
-		if strings.TrimSpace(format.PlainText(req.Target)) == "" {
+		if strings.TrimSpace(format.PlainText(target)) == "" {
 			return store.Segment{}, fmt.Errorf("cannot approve an empty translation")
 		}
 		if checks.Blocking(issues) {
 			return store.Segment{}, fmt.Errorf("cannot approve: %s", firstBlocking(issues))
 		}
 		status, reviewer = "approved", strings.TrimSpace(req.Reviewer)
-	} else if strings.TrimSpace(format.PlainText(req.Target)) == "" {
+	} else if strings.TrimSpace(format.PlainText(target)) == "" {
 		status = "untranslated"
 	}
 
 	saved, err := p.Store.SaveSegment(ctx, segmentID, store.SegmentUpdate{
-		TargetText: req.Target,
+		TargetText: target,
 		Status:     status,
 		Origin:     origin,
 		Reviewer:   reviewer,
@@ -249,8 +252,8 @@ func (p *Pipeline) Pretranslate(ctx context.Context, segmentIDs []int64) (Pretra
 
 	dialect := placeholder.DialectFor(f.Format)
 	for i, s := range segs {
-		draft := drafts[i]
-		// A model can return text that is not valid XML. Recording it would
+		draft := format.NormalizeFragment(drafts[i])
+		// A model can still return text that is not valid XML. Recording it would
 		// corrupt the export, so it is dropped and the segment is left alone.
 		if err := format.ValidateFragment(draft); err != nil {
 			continue

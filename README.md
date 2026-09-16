@@ -8,6 +8,12 @@ the file back out with only the entries somebody actually changed rewritten.
 Go for the server and the file handling, PostgreSQL with pgvector for storage and
 the memory's nearest-neighbour search, React for the review UI.
 
+**Reading this repo:** the idea worth looking at first is
+[internal/xmlsplice](internal/xmlsplice/xmlsplice.go) and how
+[internal/format](internal/format/xliff.go) uses it, explained in
+[docs/round-trip.md](docs/round-trip.md). The two defaults that had to be
+measured rather than guessed are in [docs/tuning.md](docs/tuning.md).
+
 ## Why the file handling works the way it does
 
 Localization files live in version control next to the code. A tool that
@@ -105,6 +111,34 @@ origin is where the current text came from.
 Approval is the only route into the translation memory, and it is refused while
 the entry has a blocking finding.
 
+### Re-importing
+
+Uploading the same file again is the normal case, not an edge case: a project
+re-runs `lupdate` or its equivalent whenever the source strings change, and
+uploads the result. The uploaded file is authoritative, so the segment set is
+rebuilt from it, but review state is not thrown away:
+
+- An entry whose source **and** translation both come back unchanged keeps its
+  status, origin and reviewer. It is the same work.
+- An entry whose source was reworded, or whose translation differs from the one
+  on record, starts again from what the file says, with no reviewer. Approval
+  applies to a specific pair of texts, not to a slot in the file.
+- An entry the new file no longer contains disappears from the queue. Its
+  translation memory entries survive, because those belong to the project.
+
+The import reports how many entries kept their review state.
+
+### Typing a translation
+
+Translations are stored as the raw XML fragment that sits inside the element, so
+inline placeholders such as `<x id="INTERPOLATION"/>` are carried through
+untouched instead of being decoded and re-encoded.
+
+A bare `&` is escaped on the way in rather than refused, because Qt menu labels
+are full of accelerators and a translator typing `&Datei` means a literal
+ampersand. A bare `<` is still refused: it is either markup or a mistake, and
+guessing which would risk changing what the file says.
+
 ## Quality checks
 
 Checks run on import, on every save, and on demand after the glossary changes.
@@ -199,6 +233,35 @@ text and nothing else:
   `approved="yes"`. Exporting with `-approved-only` leaves unreviewed entries
   exactly as the upstream file had them.
 
+## Using it with a Qt application
+
+The `.ts` file is the whole contract. The pipeline reads and writes that XML and
+nothing else — it never sees the application's source code or its database.
+
+```sh
+# 1. The app extracts its strings. Existing translations are kept; new strings
+#    arrive as type="unfinished", removed ones as type="vanished".
+pyside6-lupdate main.py ui/*.py -ts translations/app_de.ts
+
+# 2. Translate and review.
+locctl import -project 1 translations/app_de.ts
+#    ... work in the UI at http://localhost:8080 ...
+locctl export -file 1 -o translations/app_de.ts
+
+# 3. Qt compiles the result and the app loads it.
+pyside6-lrelease translations/app_de.ts -qm translations/app_de.qm
+```
+
+Step 2 rewrites only the entries that were actually translated, so the diff a
+reviewer sees in the pull request is the translation work and nothing else.
+
+This loop was checked against a real PySide6 application: 81 messages went in
+untranslated, came back with 82 approved segments (the plural message holds two
+forms), and `lrelease` reported *81 finished, 0 unfinished*. Loading the
+compiled `.qm` back into Qt resolved every string, including the `&File`
+accelerator, `Sold %1 x %2 for %3.`, both plural forms selected by count, and
+`Add Product` translated separately in the two contexts that define it.
+
 ## Testing
 
 ```sh
@@ -265,9 +328,11 @@ testdata/oss      unmodified translation files from open source projects
 - Inside an ICU plural or select message, only the argument itself is treated as
   a placeholder. The nested sub-messages are translatable text, so their braces
   are not compared.
-- Translations are stored and edited as raw XML fragments, so inline tags are
-  visible in the editor. A submitted translation is rejected if it is not
-  well-formed, but the editor is not tag-aware.
+- Inline tags are visible in the editor as text. Bare `&` is handled, but the
+  editor is not otherwise tag-aware: it will not stop a translator from mangling
+  an `<x id="..."/>` by hand, it will only flag it afterwards.
+- Only the first `<file>` element's language pair is read from a multi-file
+  XLIFF document, and the import fails if the others disagree with it.
 - Qt plural forms are stored as one row per form. The memory indexes only the
   first form, so a single source string does not produce several competing
   answers.

@@ -374,3 +374,53 @@ func hasIssue(issues []checks.Issue, kind checks.Kind) bool {
 	}
 	return false
 }
+
+// Qt menu labels carry accelerators like "&Datei". A translator types a bare
+// ampersand; the pipeline escapes it rather than refusing the translation, and
+// the exported file carries the entity Qt expects.
+func TestQtAcceleratorsAreAccepted(t *testing.T) {
+	p, st := newPipeline(t)
+	ctx := context.Background()
+	proj := newProject(t, st, "de")
+
+	res, err := p.Import(ctx, proj.ID, "app_de.ts", tsFile(
+		message("&amp;File", "", "unfinished")+
+			message("Fish &amp; Chips", "", "unfinished")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	segs := segmentsBySource(t, st, res.File.ID)
+
+	for source, typed := range map[string]string{
+		"&amp;File":        "&Datei",
+		"Fish &amp; Chips": "Fisch & Pommes",
+	} {
+		seg, ok := segs[source]
+		if !ok {
+			t.Fatalf("missing segment for %q", source)
+		}
+		saved, err := p.Save(ctx, seg.ID, pipeline.SaveRequest{
+			Target: typed, Approve: true, Reviewer: "sai",
+		})
+		if err != nil {
+			t.Fatalf("saving %q: %v", typed, err)
+		}
+		if strings.Contains(saved.TargetText, "&") && !strings.Contains(saved.TargetText, "&amp;") {
+			t.Errorf("stored %q, expected the ampersand escaped", saved.TargetText)
+		}
+		if got := format.PlainText(saved.TargetText); got != typed {
+			t.Errorf("visible text = %q, want %q", got, typed)
+		}
+	}
+
+	out, _, err := p.Export(ctx, res.File.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "<translation>&amp;Datei</translation>") {
+		t.Errorf("accelerator not exported as an entity:\n%s", out)
+	}
+	if _, err := format.Parse("app_de.ts", out); err != nil {
+		t.Fatalf("exported file is not valid XML: %v", err)
+	}
+}

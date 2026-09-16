@@ -34,6 +34,9 @@ type ImportResult struct {
 	Translated   int        `json:"translated"`
 	Untranslated int        `json:"untranslated"`
 	Skipped      int        `json:"skipped"`
+	// KeptReview counts entries that came back unchanged from a previous import
+	// and therefore kept the review state they already had.
+	KeptReview int `json:"kept_review"`
 }
 
 // Import parses an uploaded file and records its entries. The uploaded bytes are
@@ -81,11 +84,12 @@ func (p *Pipeline) Import(ctx context.Context, projectID int64, name string, dat
 	}
 	res.Segments = len(segs)
 
-	f, err = p.Store.InsertFile(ctx, f, data, segs)
+	f, kept, err := p.Store.InsertFile(ctx, f, data, segs)
 	if err != nil {
 		return res, err
 	}
 	res.File = f
+	res.KeptReview = kept
 
 	if _, err := p.Recheck(ctx, f.ID); err != nil {
 		return res, err
