@@ -197,15 +197,15 @@ than repeated. Against the qBittorrent memory (2,203 entries from 2,445 approved
 translations):
 
 ```
-$ locctl suggest -project 1 -text "Do you really want to exit qBittorrent?"
+$ locctl suggest -project 1 -limit 1 -text "Do you really want to exit qBittorrent?"
 semantic 0.924  Are you sure you want to quit qBittorrent?
          -> Sind Sie sicher, dass Sie qBittorrent beenden möchten?   (approved by sai)
 
-$ locctl suggest -project 1 -text "Ask for confirmation before removing torrents"
+$ locctl suggest -project 1 -limit 1 -text "Ask for confirmation before removing torrents"
 semantic 0.864  Confirm when deleting torrents
          -> Löschen von Torrents bestätigen   (approved by sai)
 
-$ locctl suggest -project 1 -text "Recipe for chocolate cake"
+$ locctl suggest -project 1 -limit 1 -text "Recipe for chocolate cake"
 no suggestions above the similarity threshold
 ```
 

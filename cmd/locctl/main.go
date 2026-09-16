@@ -13,6 +13,7 @@ import (
 
 	"github.com/Saitumu12/localization-pipeline/internal/config"
 	"github.com/Saitumu12/localization-pipeline/internal/embed"
+	"github.com/Saitumu12/localization-pipeline/internal/format"
 	"github.com/Saitumu12/localization-pipeline/internal/llm"
 	"github.com/Saitumu12/localization-pipeline/internal/pipeline"
 	"github.com/Saitumu12/localization-pipeline/internal/store"
@@ -300,7 +301,8 @@ func cmdIssues(args []string) error {
 				}
 				shown++
 				fmt.Printf("[%s/%s] %s\n  source: %s\n  target: %s\n  %s\n\n",
-					is.Kind, is.Severity, s.Context, s.SourceText, s.TargetText, is.Message)
+					is.Kind, is.Severity, s.Context,
+					format.PlainText(s.SourceText), format.PlainText(s.TargetText), is.Message)
 			}
 		}
 		offset += len(segs)
@@ -348,8 +350,11 @@ func cmdSuggest(args []string) error {
 		fmt.Println("no suggestions above the similarity threshold")
 		return nil
 	}
+	// Show the text the way a translator reads it. The HTTP API returns the raw
+	// fragment instead, because the editor inserts it verbatim.
 	for _, m := range matches {
-		fmt.Printf("%-8s %.3f  %s\n         -> %s   (approved by %s)\n", m.Kind, m.Score, m.SourceText, m.TargetText, m.ApprovedBy)
+		fmt.Printf("%-8s %.3f  %s\n         -> %s   (approved by %s)\n",
+			m.Kind, m.Score, format.PlainText(m.SourceText), format.PlainText(m.TargetText), m.ApprovedBy)
 	}
 	return nil
 }
@@ -410,9 +415,9 @@ func cmdInconsistencies(args []string) error {
 		return err
 	}
 	for _, r := range rows {
-		fmt.Printf("%s\n", r.Source)
+		fmt.Printf("%s\n", format.PlainText(r.Source))
 		for _, v := range r.Variants {
-			fmt.Printf("    %s\n", v)
+			fmt.Printf("    %s\n", format.PlainText(v))
 		}
 	}
 	fmt.Printf("%d source strings approved with more than one wording\n", len(rows))
