@@ -1,0 +1,12 @@
+# Go build output
+/locctl
+/locctl.exe
+/server
+/server.exe
+
+# Front end
+node_modules/
+web/dist/
+
+# Local environment
+.env
