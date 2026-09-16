@@ -76,6 +76,9 @@ works without it.
 
 ### A run from the terminal
 
+Every command that creates something prints the id you need for the next one, so
+on an empty database the ids below come out as written.
+
 ```sh
 go build -o locctl ./cmd/locctl
 
@@ -297,10 +300,10 @@ their licences. The notable ones:
   shape, glossary in the prompt, fenced replies, wrong-length replies and API
   errors.
 
-**Not verified here:** no Anthropic API key was available while this was built,
-so the client has never made a live call. Everything on this side of the
-network — the request it builds, how it parses replies, and the rule that output
-lands in review — is tested against the stub. To check the live call, set
+**One thing is not covered:** the client has never been run against the live
+Anthropic API, only against the stub. Everything on this side of the network —
+the request it builds, how it parses replies, and the rule that output lands in
+review — is tested. To exercise the live call, set
 `ANTHROPIC_API_KEY`, start the server, and press "Draft with the model" on a
 segment.
 
