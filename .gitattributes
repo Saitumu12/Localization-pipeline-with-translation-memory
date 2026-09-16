@@ -1,0 +1,8 @@
+# Keep line endings as they are in the repository. Without this, a checkout on
+# Windows rewrites LF to CRLF, which would silently modify the third-party
+# translation files and break the byte-level round-trip tests.
+* text=auto eol=lf
+
+# The fixtures are third-party files compared byte for byte. Git must not
+# normalise them at all.
+testdata/oss/** -text
