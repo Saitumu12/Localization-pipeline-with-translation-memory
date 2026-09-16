@@ -54,6 +54,11 @@ cd web && npm install && npm run build && cd ..
 go run ./cmd/server           # http://localhost:8080
 ```
 
+The first `docker compose up` builds the embedding service, which installs
+onnxruntime and bakes the model into the image. That takes a few minutes and
+needs network access; afterwards the container starts offline in a second or
+two. `docker compose ps` shows both services as healthy when they are ready.
+
 The server applies its own migrations at startup. For UI work, `npm run dev` in
 `web/` serves the front end on :5173 and proxies `/api` to the Go server.
 

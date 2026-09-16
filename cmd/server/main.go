@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,13 +49,18 @@ func main() {
 	p := pipeline.New(st, em, mt)
 	handler := withUI(api.New(p).Routes(), cfg.WebDir)
 
+	// Bind first so a port clash is reported instead of being printed after a
+	// line claiming the server is up.
+	listener, err := net.Listen("tcp", cfg.Addr)
+	if err != nil {
+		log.Fatalf("cannot listen on %s: %v", cfg.Addr, err)
+	}
 	srv := &http.Server{
-		Addr:              cfg.Addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Printf("listening on http://localhost%s", cfg.Addr)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
 }
